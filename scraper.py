@@ -2,7 +2,9 @@ import json
 import logging
 import time
 
+import os
 import requests
+import shutil
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 
@@ -68,6 +70,7 @@ class API(object):
                 self.LastPage = response.text.decode('cp1251')
             except Exception as e:
                 self.logger.error(str(e))
+                self.logger.error(self.LastResponse.url)
         return False
 
     def get_catalog_menu_links(self, page=None):
@@ -106,6 +109,69 @@ class API(object):
             items.extend(self.get_items_from_page(bot.LastPage))
         return items
 
+    def get_photo(self, link):
+        r = requests.get(link, stream=True)
+        if r.status_code == 200:
+            r.raw.decode_content = True
+            return r.raw
+        return None
+
+    def get_item_info(self, link):
+        name = link.split('/')[-2]
+        path = f'products/{name}'
+        os.makedirs(path, exist_ok=True)
+        if not os.path.isfile(f'{path}/info.json'):
+            self.send_request(link)
+            page = self.LastPage
+            soup = BeautifulSoup(page, 'html.parser')
+
+            # photo
+            image_link = self.BASE_URL + soup.find('div', {'class': 'img_wrapper'}).find('img').get('src')
+            if not os.path.isfile(f'{path}/photo.jpg'):
+                photo_raw = self.get_photo(image_link)
+                if photo_raw:
+                    with open(f'{path}/photo.jpg', 'wb') as f:
+                        shutil.copyfileobj(photo_raw, f)
+
+            # info
+            info = {
+                'name': soup.find('div', {'class': 'name_block'}).text.strip(),
+            }
+            price = soup.find('div', {'class': 'cost prices clearfix'}).find('div', {'class': 'price'})
+            if not price:
+                return
+            price_discount = soup.find('div', {'class': 'cost prices clearfix'}).find('div',
+                                                                                      {'class': 'price_discount'})
+            if price_discount:
+                info['price_discount'] = price_discount.text.strip()
+                info['discount_text'] = soup.find('div', {'class': 'cost prices clearfix'}).find('div', {
+                    'class': 'sale_block'}).text.strip()
+            info['stock'] = soup.find('div', {'class': 'item-stock'}).find('span', {'class': 'store_view'}).text.strip()
+            props = soup.find_all('div', {'class': 'static_prop clearfix'})
+            props_text = ''
+            for prop in props:
+                props_text += prop.text.strip().replace('\n', ': ') + '\n'
+            props_text = props_text[:-1]
+            info['props_text'] = props_text
+            detail_text = soup.find('div', {'class': 'detail_text'})
+            if detail_text:
+                info['detail_text'] = detail_text.text.strip()
+            info['advantages'] = """Преимущества заказа на LUWU:
+    
+    Бесплатная доставка
+    У вас всегда есть возможность получить бесплатную доставку товара
+    
+    Гарантия качества
+    Мы даем повышенную гарантию в 30 дней на всю нашу продукцию
+    
+    Безопасность
+    Безопасность платежей гарантируется использованием SSL протокола. Данные вашей банковской карты надежно защищены при оплате онлайн.
+    
+    Примерка
+    Примеряйте и оплачивайте только подходящие товары. Вы можете примерить вещи перед покупкой и взять лишь те, которые вам подошли."""
+
+            self.save_json(info, f'{path}/info.json')
+
     def save_json(self, data, path='links.json'):
         with open(path, 'w') as file:
             file.write(json.dumps(data, ensure_ascii=False))
@@ -115,11 +181,14 @@ class API(object):
 if __name__ == "__main__":
     bot = API()
     categories_links = bot.get_catalog_menu_links()
-    products_links = []
-    for link in tqdm(categories_links):
-        bot.send_request(link)
-        page = bot.LastPage
-        nums = bot.get_pages_nums(page)
-        s = bot.get_all_items(link, nums)
-        products_links.extend(s)
-    bot.save_json({'links': products_links})
+    products_links = json.loads(open('links.json', 'r').read()).get('links')
+    # for link in tqdm(categories_links):
+    #     bot.send_request(link)
+    #     page = bot.LastPage
+    #     nums = bot.get_pages_nums(page)
+    #     s = bot.get_all_items(link, nums)
+    #     products_links.extend(s)
+    # bot.save_json({'links': products_links})
+
+    for link in tqdm(products_links):
+        bot.get_item_info(link)
