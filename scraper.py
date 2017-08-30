@@ -1,8 +1,10 @@
+import json
 import logging
 import time
 
 import requests
 from bs4 import BeautifulSoup
+from tqdm import tqdm
 
 
 class API(object):
@@ -69,6 +71,8 @@ class API(object):
         return False
 
     def get_catalog_menu_links(self, page=None):
+        t_r_a_s_h = ['Женская одежда', 'Мужская одежда', 'Женская обувь', 'Мужская обувь', 'Аксессуары',
+                     'Обувь детская', 'Одежда детская', 'Распродажа', 'Новинки']
         if not page:
             self.send_request(self.BASE_URL)
             page = self.LastPage
@@ -79,14 +83,43 @@ class API(object):
         subs = []
         for cat in categories:
             subs.extend(cat)
-        result = [sub.get('href') for sub in subs if sub.get('href')]
+        result = [sub.get('href') for sub in subs if sub.get('href') and sub.text not in t_r_a_s_h]
         return result
 
     def get_items_from_page(self, page):
-        pass
+        soup = BeautifulSoup(page, 'html.parser')
+        items = soup.find('div', {'class': 'catalog_block'}).find_all('div', {'class': 'catalog_item_wrapp'})
+        return [item.find('div', {'class': 'item-title'}).find('a').get('href') for item in items]
+
+    def get_pages_nums(self, page):
+        soup = BeautifulSoup(page, 'html.parser')
+        paginator = soup.find('span', {'class': 'nums'})
+        if not paginator:
+            return 1
+        nums = paginator.find_all('a')[-1].text
+        return int(nums)
+
+    def get_all_items(self, link, nums):
+        items = []
+        for num in range(1, nums + 1):
+            bot.send_request(f'{link}/?PAGEN_1={num}')
+            items.extend(self.get_items_from_page(bot.LastPage))
+        return items
+
+    def save_json(self, data, path='links.json'):
+        with open(path, 'w') as file:
+            file.write(json.dumps(data, ensure_ascii=False))
+            file.close()
 
 
 if __name__ == "__main__":
     bot = API()
     categories_links = bot.get_catalog_menu_links()
-    print(categories_links)
+    products_links = []
+    for link in tqdm(categories_links):
+        bot.send_request(link)
+        page = bot.LastPage
+        nums = bot.get_pages_nums(page)
+        s = bot.get_all_items(link, nums)
+        products_links.extend(s)
+    bot.save_json({'links': products_links})
