@@ -136,14 +136,16 @@ class API(object):
             # info
             info = {
                 'name': soup.find('div', {'class': 'name_block'}).text.strip(),
+                'link': link
             }
             price = soup.find('div', {'class': 'cost prices clearfix'}).find('div', {'class': 'price'})
             if not price:
                 return
+            info['price'] = price.text.strip()
             price_discount = soup.find('div', {'class': 'cost prices clearfix'}).find('div',
-                                                                                      {'class': 'price_discount'})
+                                                                                      {'class': 'price discount'})
             if price_discount:
-                info['price_discount'] = price_discount.text.strip()
+                info['old_price'] = price_discount.text.strip()
                 info['discount_text'] = soup.find('div', {'class': 'cost prices clearfix'}).find('div', {
                     'class': 'sale_block'}).text.strip()
             info['stock'] = soup.find('div', {'class': 'item-stock'}).find('span', {'class': 'store_view'}).text.strip()
